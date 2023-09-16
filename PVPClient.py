@@ -1,65 +1,48 @@
+import socket
 import pygame
 import PySimpleGUI as sg
 
-class PVPWindow:
-    def __init__(self):
+class PVPClient:
 
-        self.board = [[0,0,0],
-                      [0,0,0],
-                      [0,0,0]]
+    def __init__(self):
 
         self.oPicture = pygame.image.load('Images/oPicture.png')
         self.xPicture = pygame.image.load('Images/xPicture.png')
 
-        self.create()
+        self.xTurn = True
+        self.board = [[0, 0, 0],
+                      [0, 0, 0],
+                      [0, 0, 0]]
+
+        self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.server = "192.168.2.100"
+        self.port = 5555
+        self.addr = (self.server, self.port)
+        self.playerX = True  # this should be reassigned later depeneding on which player it is
+
+        if self.connect()[-1] == "2":
+            self.playerX = False
+
+        self.gameStart()
 
 
-    def create(self):
+    def connect(self):
+        try:
+            self.client.connect(self.addr)
+            self.send("connected")
+            return self.client.recv(2048).decode()  #once it connects, we want to send information back to the connecting object
+        except:
+            pass
 
-        xTurn = True #sets turn to "x" player at the start of the game
+    def send(self, data):
+        try:
+            self.client.send(str.encode(data))
+            return self.client.recv(2048).decode()
 
-        pygame.init()
-        gameWindow = pygame.display.set_mode((600, 600))
-        pygame.display.set_caption("PvP TicTacToe")
-
-        self.drawBoard(gameWindow)
-
-        self.running = True
-        while self.running:
-            for event in pygame.event.get(): #loops through all current events
-                if event.type == pygame.QUIT:  #closes when "x" is pressed
-                    self.running = False
-                    break
-                if event.type == pygame.MOUSEBUTTONDOWN:  #if a mouse click occurs
-                    mx, my = pygame.mouse.get_pos()  #sets mx,my to mouse coordinates
-
-                    squarePressed = self.determineSquare(mx, my)  #determines which square was pressed
-                    row = squarePressed[0]
-                    column = squarePressed[1]
-                    if self.board[row][column] == 0: #if the sqaure is empty, places a symbol of whoever's turn it is
-
-                        if xTurn: #it is x's turn
-                            self.board[row][column] = "x"
-                            xTurn = False
-                        else: #it is o's turn
-                            self.board[row][column] = "o"
-                            xTurn = True
+        except socket.error as e:
+            print(e)
 
 
-            self.drawBoard(gameWindow)
-            pygame.display.update()  #update all visuals
-
-            if self.checkForWinner():  #checks if the game is over
-                if xTurn:  #if it is x's turn, the last move played was by o, therefore o wins
-                    winner = "o"
-                else:  #otherwise x wins
-                    winner = "x"
-                self.endGame(winner)  #create the end game screen
-
-            elif self.isBoardFull():
-                self.endGame("Tie!")
-
-        pygame.quit()
 
     def drawBoard(self, gameWindow):
         pygame.draw.rect(gameWindow, (225, 225, 225), (0, 0, 600, 600)) #draws background
@@ -80,7 +63,6 @@ class PVPWindow:
                     gameWindow.blit(self.xPicture, (j * 200, i * 200))
                 elif self.board[i][j] == "o":
                     gameWindow.blit(self.oPicture, (j * 200, i * 200))
-
 
     def determineSquare(self, x, y):
         result = [0,0]
@@ -158,27 +140,6 @@ class PVPWindow:
 
         return False
 
-    def endGame(self, winner):
-
-        sg.theme("LightGreen4")
-
-        layout = [
-            [sg.Text("Game Over!")],
-            [sg.Text('Winner: ' + winner)],
-            [sg.Button("Exit")]
-        ]
-
-        gameOverScreen = sg.Window("TicTacToe", layout, size=(350, 250), margins=(0, 75), element_justification="center")
-
-        while True:
-            event, values = gameOverScreen.read()
-
-            if event == "Exit" or event == sg.WIN_CLOSED:
-                self.running = False
-                pygame.quit()
-                gameOverScreen.close()
-                break
-
     def readStr(self, str): #converts string to a board array. "[0,0,x][0,0,o][0,0,0]" --> [[0,0,x][0,0,o][0,0,0,]]
         board = [[],[],[]]
 
@@ -206,3 +167,94 @@ class PVPWindow:
             myString += "]"
 
         return myString
+
+    def endGame(self, winner):
+
+        sg.theme("LightGreen4")
+
+        layout = [
+            [sg.Text("Game Over!")],
+            [sg.Text('Winner: ' + winner)],
+            [sg.Button("Exit")]
+        ]
+
+        gameOverScreen = sg.Window("TicTacToe", layout, size=(350, 250), margins=(0, 75), element_justification="center")
+
+        while True:
+            event, values = gameOverScreen.read()
+
+            if event == "Exit" or event == sg.WIN_CLOSED:
+                self.running = False
+                
+                gameOverScreen.close()
+                break
+
+    def gameStart(self):
+
+        print(f"Game Starting, I am player \"X\": {self.playerX}")
+        pygame.init()
+        gameWindow = pygame.display.set_mode((600, 600))
+        pygame.display.set_caption("Online PvP")
+
+        self.running = True
+        while self.running:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    self.running = False
+                    break
+
+                if event.type == pygame.MOUSEBUTTONDOWN:  #if a mouse click occurs
+                    mx, my = pygame.mouse.get_pos()  #sets mx,my to mouse coordinates
+
+                    squarePressed = self.determineSquare(mx, my)  #determines which square was pressed
+                    row = squarePressed[0]
+                    column = squarePressed[1]
+                    if self.board[row][column] == 0: #if the sqaure is empty, places a symbol of whoever's turn it is
+
+                        if self.playerX and self.xTurn: #it is x's turn
+                            self.board[row][column] = "x"
+                            self.xTurn = False
+
+                            self.send(self.readBoard()) #after making a move, sends the updated board to the server
+
+                            while True:
+                                connection, addr = self.client.accept()
+                                response = connection.recv(2048).decode("utf-8")
+                                if response:
+                                    self.board = self.readStr(response)
+                                    break
+
+                        elif not self.playerX and not self.xTurn: #it is o's turn
+                            self.board[row][column] = "o"
+                            self.xTurn = True
+
+                            self.send(self.readBoard()) #after making a move, sends the updated board to the server
+
+                            while True:
+                                connection, addr = self.client.accept()
+                                response = connection.recv(2048).decode("utf-8")
+                                if response:
+                                    self.board = self.readStr(response)
+                                    break
+
+
+
+            self.drawBoard(gameWindow)
+            pygame.display.update()
+
+            if self.checkForWinner():  #checks if the game is over
+                if self.xTurn:  #if it is x's turn, the last move played was by o, therefore o wins
+                    winner = "o"
+                else:  #otherwise x wins
+                    winner = "x"
+                self.endGame(winner)  #create the end game screen
+
+            elif self.isBoardFull():
+                self.endGame("Tie!")
+
+
+        pygame.quit()
+
+
+
+c = PVPClient()
